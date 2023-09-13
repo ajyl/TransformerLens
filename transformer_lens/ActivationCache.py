@@ -285,6 +285,7 @@ class ActivationCache:
         layer: Optional[int] = None,
         mlp_input: bool = False,
         mode: Literal["all", "mlp", "attn"] = "all",
+        project_onto: Float[torch.Tensor, "batch d_model"] = None,
         apply_ln: bool = False,
         pos_slice: Union[Slice, SliceInput] = None,
         incl_embeds: bool = True,
@@ -333,10 +334,69 @@ class ActivationCache:
 
         for l in range(layer):
             if incl_attn:
-                components.append(self[("attn_out", l)])
+
+                # [batch, seq, d_model]
+                component = self[("attn_out", l)]
+                if project_onto is not None:
+
+                    _projection_vectors = project_onto.unsqueeze(
+                        1
+                    ).repeat(1, component.shape[1], 1)
+                    dot_prods = einsum(
+                        "batch seq d_model, batch seq d_model -> batch seq",
+                        component.clone(),
+                        _projection_vectors,
+                    )
+                    projection_dots = einsum(
+                        "batch d_model, batch d_model -> batch",
+                        project_onto,
+                        project_onto,
+                    )
+                    scales = einsum(
+                        "batch seq, batch -> batch seq",
+                        dot_prods,
+                        1 / projection_dots,
+                    )
+                    component = einsum(
+                        "batch seq, batch d_model -> batch seq d_model",
+                        scales,
+                        project_onto,
+                    )
+                components.append(component)
+                #components.append(self[("attn_out", l)])
                 labels.append(f"{l}_attn_out")
             if incl_mlp:
-                components.append(self[("mlp_out", l)])
+
+                #components.append(self[("mlp_out", l)])
+                component = self[("mlp_out", l)]
+                if project_onto is not None:
+
+                    _projection_vectors = project_onto.unsqueeze(
+                        1
+                    ).repeat(1, component.shape[1], 1)
+                    dot_prods = einsum(
+                        "batch seq d_model, batch seq d_model -> batch seq",
+                        component.clone(),
+                        _projection_vectors,
+                    )
+                    projection_dots = einsum(
+                        "batch d_model, batch d_model -> batch",
+                        project_onto,
+                        project_onto,
+                    )
+                    scales = einsum(
+                        "batch seq, batch -> batch seq",
+                        dot_prods,
+                        1 / projection_dots,
+                    )
+                    component = einsum(
+                        "batch seq, batch d_model -> batch seq d_model",
+                        scales,
+                        project_onto,
+                    )
+
+                components.append(component)
+
                 labels.append(f"{l}_mlp_out")
         if mlp_input and incl_attn:
             components.append(self[("attn_out", layer)])

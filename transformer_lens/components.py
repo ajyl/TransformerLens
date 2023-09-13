@@ -800,6 +800,7 @@ class MLP(nn.Module):
 
         self.hook_pre = HookPoint()  # [batch, pos, d_mlp]
         self.hook_post = HookPoint()  # [batch, pos, d_mlp]
+        self.hook_mid = None
 
         if self.cfg.act_fn == "relu":
             self.act_fn = F.relu
@@ -808,6 +809,7 @@ class MLP(nn.Module):
         elif self.cfg.act_fn == "silu":
             self.act_fn = F.silu
         elif self.cfg.act_fn == "gelu_new":
+            self.hook_mid = HookPoint()
             self.act_fn = gelu_new
         elif self.cfg.act_fn == "gelu_fast":
             self.act_fn = gelu_fast
@@ -832,7 +834,11 @@ class MLP(nn.Module):
             + self.b_in
         )  # [batch, pos, d_mlp]
         if not self.cfg.act_fn.endswith("_ln"):
-            post_act = self.hook_post(self.act_fn(pre_act))  # [batch, pos, d_mlp]
+            if self.hook_mid is not None:
+                mid_act = self.hook_mid(self.act_fn(pre_act))
+                post_act = self.hook_post(mid_act)
+            else:
+                post_act = self.hook_post(self.act_fn(pre_act))  # [batch, pos, d_mlp]
         else:
             mid_act = self.hook_mid(self.act_fn(pre_act))  # [batch, pos, d_mlp]
             post_act = self.hook_post(self.ln(mid_act))
